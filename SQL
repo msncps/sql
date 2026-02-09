@@ -1,65 +1,231 @@
-SELECT COUNT(*) AS schema_count
-FROM information_schema.schemata;
+Step 1: Get the view definition (most important)
 
-SELECT DISTINCT table_schema
-FROM information_schema.tables;
+First, you need to see how the view is built.
 
-SELECT COUNT(DISTINCT table_schema) AS schemas_with_tables
-FROM information_schema.tables;
+SQL Server
+EXEC sp_helptext 'YourViewName';
 
-SELECT table_schema, COUNT(*) AS table_count
-FROM information_schema.tables
-GROUP BY table_schema;
 
-SELECT DISTINCT s.name AS SchemaName
-FROM sys.schemas s
-LEFT JOIN sys.tables t 
-    ON s.schema_id = t.schema_id
-LEFT JOIN sys.views v 
-    ON s.schema_id = v.schema_id
-WHERE t.schema_id IS NOT NULL
-   OR v.schema_id IS NOT NULL
-ORDER BY s.name;
+or (better, because it doesn’t break lines):
 
-SELECT DISTINCT TABLE_SCHEMA AS SchemaName
-FROM INFORMATION_SCHEMA.TABLES
-WHERE TABLE_TYPE IN ('BASE TABLE', 'VIEW')
-ORDER BY TABLE_SCHEMA;
+SELECT definition
+FROM sys.sql_modules
+WHERE object_id = OBJECT_ID('YourViewName');
 
+MySQL
+SHOW CREATE VIEW YourViewName;
+
+PostgreSQL
+SELECT definition
+FROM pg_views
+WHERE viewname = 'yourviewname';
+
+
+👉 Goal: Find the SELECT statement used to create the view.
+
+Step 2: Find [licencekey] in the SELECT list
+
+Look for something like:
+
+SELECT licencekey, col2, col3
+FROM ...
+
+
+or
+
+SELECT t1.licencekey
+FROM table1 t1
+
+
+If there is no alias, the column name usually comes directly from a table or subquery.
+
+Step 3: Check the FROM and JOIN clauses
+
+Now inspect the FROM section carefully:
+
+FROM TableA
+JOIN TableB ON ...
+LEFT JOIN TableC ON ...
+
+Key rule:
+
+If multiple tables are joined and no table alias is used in SELECT licencekey:
+
+SQL allows this only if exactly one table has licencekey
+
+That table is your source
+
+Step 4: Search which table actually has licencekey
+
+If the view is large or complex, don’t guess — ask the system catalog.
+
+SQL Server
 SELECT 
-    s.name AS SchemaName,
-    COUNT(t.name) AS TableCount
-FROM sys.schemas s
-LEFT JOIN sys.tables t 
-    ON s.schema_id = t.schema_id
-GROUP BY s.name
-ORDER BY s.name;
+    t.name AS table_name,
+    c.name AS column_name
+FROM sys.columns c
+JOIN sys.tables t ON c.object_id = t.object_id
+WHERE c.name = 'licencekey';
 
-SELECT SCHEMA_NAME
-FROM INFORMATION_SCHEMA.SCHEMATA
-WHERE SCHEMA_NAME NOT IN (
-    SELECT DISTINCT TABLE_SCHEMA 
-    FROM INFORMATION_SCHEMA.TABLES
-)
-ORDER BY SCHEMA_NAME;
+MySQL
+SELECT TABLE_NAME, COLUMN_NAME
+FROM INFORMATION_SCHEMA.COLUMNS
+WHERE COLUMN_NAME = 'licencekey';
 
-SELECT DISTINCT TABLE_SCHEMA
-FROM INFORMATION_SCHEMA.TABLES
-ORDER BY TABLE_SCHEMA;
+PostgreSQL
+SELECT table_name, column_name
+FROM information_schema.columns
+WHERE column_name = 'licencekey';
 
 
-SELECT s.name AS SchemaName
-FROM sys.schemas s
-LEFT JOIN sys.tables t 
-    ON s.schema_id = t.schema_id
-WHERE t.schema_id IS NULL
-ORDER BY s.name;
+👉 This tells you every table that contains licencekey.
+
+Step 5: Match it back to the view
+
+Now compare:
+
+Tables returned in Step 4
+
+Tables used in the view’s FROM clause
+
+✅ The intersection is your answer.
+
+Step 6: Watch out for derived columns (important)
+
+Sometimes the column isn’t directly from a table:
+
+Example:
+SELECT 
+    CASE 
+        WHEN a.key IS NOT NULL THEN a.key
+        ELSE b.key
+    END AS licencekey
+FROM tableA a
+JOIN tableB b ...
 
 
-SELECT DISTINCT s.name AS SchemaName
-FROM sys.schemas s
+or
+
+SELECT licencekey
+FROM (
+    SELECT key AS licencekey FROM tableA
+) x
+
+
+In these cases:
+
+licencekey is derived
+
+You must trace it inside subqueries
+
+Step 7: Use dependency metadata (SQL Server bonus)
+
+SQL Server can tell you dependencies automatically:
+
+EXEC sp_depends 'YourViewName';
+
+
+Or more accurately:
+
+SELECT referenced_entity_name
+FROM sys.sql_expression_dependencies
+WHERE referencing_id = OBJECT_ID('YourViewName');
+
+Step 8: Best practice going forward (future-you will thank you)
+
+To avoid this pain again:
+
+SELECT t1.licencekey
+FROM dbo.TableWithLicence t1
+
+
+1️⃣ Get the FULL view definition
+SELECT definition
+FROM sys.sql_modules
+WHERE object_id = OBJECT_ID('dbo.YourViewName');
+
+
+📌 Shows the exact SELECT / FROM / JOIN logic used by the view.
+
+2️⃣ Quick readable version (line-by-line)
+EXEC sp_helptext 'dbo.YourViewName';
+
+
+📌 Easier to scan visually.
+
+3️⃣ Find which tables contain licencekey
+SELECT 
+    t.name  AS table_name,
+    c.name  AS column_name
+FROM sys.columns c
+JOIN sys.tables  t ON c.object_id = t.object_id
+WHERE c.name = 'licencekey';
+
+
+📌 Lists every table that has this column.
+
+4️⃣ Narrow it to tables used by the view
+SELECT 
+    referenced_schema_name,
+    referenced_entity_name
+FROM sys.sql_expression_dependencies
+WHERE referencing_id = OBJECT_ID('dbo.YourViewName');
+
+
+📌 Shows tables/views referenced by the view.
+
+5️⃣ Combine 3 + 4 (most useful query)
+SELECT 
+    t.name AS table_name,
+    c.name AS column_name
+FROM sys.columns c
 JOIN sys.tables t 
-    ON s.schema_id = t.schema_id
-ORDER BY s.name;
+    ON c.object_id = t.object_id
+WHERE c.name = 'licencekey'
+AND t.name IN (
+    SELECT referenced_entity_name
+    FROM sys.sql_expression_dependencies
+    WHERE referencing_id = OBJECT_ID('dbo.YourViewName')
+);
 
 
+📌 This usually gives you the exact source table.
+
+6️⃣ Check for ambiguity (multiple tables with same column)
+SELECT COUNT(*) AS table_count
+FROM sys.columns
+WHERE name = 'licencekey';
+
+
+📌 If result > 1, the column exists in multiple tables → must be qualified or derived.
+
+7️⃣ Look for derived or renamed columns
+SELECT definition
+FROM sys.sql_modules
+WHERE object_id = OBJECT_ID('dbo.YourViewName')
+AND definition LIKE '%licencekey%';
+
+
+📌 Finds:
+
+CASE
+
+COALESCE
+
+subqueries
+
+AS licencekey
+
+8️⃣ Get dependency tree (old but quick)
+EXEC sp_depends 'dbo.YourViewName';
+
+
+📌 Fast overview (not always 100% accurate).
+
+9️⃣ Column lineage (deep inspection)
+SELECT 
+    OBJECT_NAME(referencing_id) AS view_name,
+    referenced_entity_name,
+    referenced_minor_name AS column_name
+FROM sys.sql_expression_dependencies
+WHERE referencing_id = OBJECT_ID('dbo.YourViewName');
