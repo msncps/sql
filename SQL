@@ -1,0 +1,65 @@
+SELECT COUNT(*) AS schema_count
+FROM information_schema.schemata;
+
+SELECT DISTINCT table_schema
+FROM information_schema.tables;
+
+SELECT COUNT(DISTINCT table_schema) AS schemas_with_tables
+FROM information_schema.tables;
+
+SELECT table_schema, COUNT(*) AS table_count
+FROM information_schema.tables
+GROUP BY table_schema;
+
+SELECT DISTINCT s.name AS SchemaName
+FROM sys.schemas s
+LEFT JOIN sys.tables t 
+    ON s.schema_id = t.schema_id
+LEFT JOIN sys.views v 
+    ON s.schema_id = v.schema_id
+WHERE t.schema_id IS NOT NULL
+   OR v.schema_id IS NOT NULL
+ORDER BY s.name;
+
+SELECT DISTINCT TABLE_SCHEMA AS SchemaName
+FROM INFORMATION_SCHEMA.TABLES
+WHERE TABLE_TYPE IN ('BASE TABLE', 'VIEW')
+ORDER BY TABLE_SCHEMA;
+
+SELECT 
+    s.name AS SchemaName,
+    COUNT(t.name) AS TableCount
+FROM sys.schemas s
+LEFT JOIN sys.tables t 
+    ON s.schema_id = t.schema_id
+GROUP BY s.name
+ORDER BY s.name;
+
+SELECT SCHEMA_NAME
+FROM INFORMATION_SCHEMA.SCHEMATA
+WHERE SCHEMA_NAME NOT IN (
+    SELECT DISTINCT TABLE_SCHEMA 
+    FROM INFORMATION_SCHEMA.TABLES
+)
+ORDER BY SCHEMA_NAME;
+
+SELECT DISTINCT TABLE_SCHEMA
+FROM INFORMATION_SCHEMA.TABLES
+ORDER BY TABLE_SCHEMA;
+
+
+SELECT s.name AS SchemaName
+FROM sys.schemas s
+LEFT JOIN sys.tables t 
+    ON s.schema_id = t.schema_id
+WHERE t.schema_id IS NULL
+ORDER BY s.name;
+
+
+SELECT DISTINCT s.name AS SchemaName
+FROM sys.schemas s
+JOIN sys.tables t 
+    ON s.schema_id = t.schema_id
+ORDER BY s.name;
+
+
