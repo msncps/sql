@@ -1,0 +1,135 @@
+                    +--------------------+
+                    |   SOURCE SYSTEMS   |
+                    | (CRM / ERP / API)  |
+                    +---------+----------+
+                              |
+                              v
+                    +--------------------+
+                    |   STAGING LAYER    |
+                    |--------------------|
+                    | stg_customer       |
+                    | stg_orders         |
+                    | stg_products       |
+                    +---------+----------+
+                              |
+                              v
+                    +--------------------+
+                    |  TRANSFORM LAYER   |
+                    |--------------------|
+                    | vw_customer_clean  |
+                    | vw_orders_enriched |
+                    | vw_product_master  |
+                    +---------+----------+
+                              |
+                              v
+                    +--------------------+
+                    | STORED PROCEDURES  |
+                    |--------------------|
+                    | sp_load_customers  |
+                    | sp_load_orders     |
+                    | sp_load_products   |
+                    +---------+----------+
+                              |
+                              v
+                    +----------------------+
+                    |   MARK / DATA MART   |
+                    |----------------------|
+                    | mark_customer (Dim)  |
+                    | mark_product  (Dim)  |
+                    | mark_orders   (Fact) |
+                    +----------+-----------+
+                               |
+                               v
+                    +----------------------+
+                    | REPORTING / BI LAYER |
+                    | Power BI / Tableau   |
+                    +----------------------+
+
+
+                 +------------------+
+                 |   DIM_CUSTOMER   |
+                 |------------------|
+PK  customer_key |
+    customer_id  |
+    customer_name|
+    segment      |
++----------------+
+          |
+          | 1
+          |
+          | *
++---------v----------------+
+|        FACT_ORDERS       |
+|--------------------------|
+PK order_key               |
+FK customer_key            |
+FK product_key             |
+   order_date              |
+   order_amount            |
+   quantity                |
++--------------------------+
+          |
+          | *
+          |
+          | 1
++---------v---------------+
+|      DIM_PRODUCT        |
+|-------------------------|
+PK product_key            |
+   product_id             |
+   product_name           |
+   category               |
++-------------------------+
+
+Report: Sales Dashboard
+   |
+   v
+Field: Total Order Amount
+   |
+   v
+mark_orders.total_amount
+   |
+   v
+vw_orders_enriched.total_amount
+   |
+   v
+Logic:
+order_value + tax_amount - discount_amount
+   |
+   v
+stg_orders.order_value
+stg_orders.tax_amount
+stg_orders.discount_amount
+
+
+[Source System]
+      |
+      v
+[Staging Tables]
+(stg_customer)
+(stg_orders)
+      |
+      v
+[Transform Views]
+(vw_customer_clean)
+(vw_orders_enriched)
+      |
+      v
+[Stored Procedure Layer]
+(sp_load_mark_tables)
+      |
+      v
+[Mark / Data Mart Tables]
+(mark_customer)
+(mark_orders)
+      |
+      v
+[Reporting Layer]
+(Power BI / Tableau / Report)
+
+| Report Field  | Mark Table                  | Transform View                  | Staging Table | Source Field    |
+| ------------- | --------------------------- | ------------------------------- | ------------- | --------------- |
+| Customer Name | mark_customer.customer_name | vw_customer_clean.customer_name | stg_customer  | cust_name       |
+| Order Amount  | mark_orders.order_amount    | vw_orders_enriched.total_amount | stg_orders    | order_value     |
+| Order Date    | mark_orders.order_date      | vw_orders_enriched.order_dt     | stg_orders    | order_timestamp |
+
